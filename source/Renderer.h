@@ -47,8 +47,12 @@ namespace dae
 		int m_Width{};
 		int m_Height{};
 
-		//Function that transforms the vertices from the mesh from World space to Screen space
+		//Functions that transforms the vertices from the mesh from World space to Screen space
 		void VertexTransformationFunction(const std::vector<Vertex>& vertices_in, std::vector<Vertex>& vertices_out) const; //W1 Version
+		void VertexTransformationFunction(const std::vector<Vertex>& vertices_in, std::vector<Vertex_Out>& vertices_out) const; //W2 Version
+
+		// Textures
+		Texture* m_pTexture;
 
 		// W1 Render stages
 		void W1_Rasterization();
@@ -56,5 +60,11 @@ namespace dae
 		void W1_BaryCentricCoords();
 		void W1_DepthBuffer();
 		void W1_BoundingBox();
+
+		// W2 Steps
+		void W2_TriangleList();
+		void W2_TriangleStrip();
+		void W2_Textures();
+		void W2_DepthFix();
 	};
 }
