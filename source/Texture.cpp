@@ -35,10 +35,19 @@ namespace dae
 		int width = m_pSurface->w;
 		int height = m_pSurface->h;
 
-		Vector2 pixel{ uv.x * width, uv.y * height };
+		int px{ int(uv.x * (width - 1)) % width };
+		int py{ int(uv.y * (height - 1)) % height };
+
+		if (px < 0) {
+			px += width;
+		}
+
+		if (py < 0) {
+			py += height;
+		}
 
 		Uint8 r{}, g{}, b{};
-		SDL_GetRGB(m_pSurfacePixels[int(pixel.x) + int(pixel.y) * width], m_pSurface->format, &r, &g, &b);
+		SDL_GetRGB(m_pSurfacePixels[px + py * width], m_pSurface->format, &r, &g, &b);
 		ColorRGB sampledColor{ r,g,b };
 
 		return (sampledColor / 255.0f);
