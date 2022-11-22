@@ -17,6 +17,8 @@ namespace dae
 	class Timer;
 	class Scene;
 
+	enum class RenderMode{normal, depth, bounding};
+
 	class Renderer final
 	{
 	public:
@@ -32,6 +34,8 @@ namespace dae
 		void Render();
 
 		bool SaveBufferToImage() const;
+
+		void ToggleMode();
 
 	private:
 		SDL_Window* m_pWindow{};
@@ -49,7 +53,7 @@ namespace dae
 
 		//Functions that transforms the vertices from the mesh from World space to Screen space
 		void VertexTransformationFunction(const std::vector<Vertex>& vertices_in, std::vector<Vertex>& vertices_out) const; //W1 Version
-		void VertexTransformationFunction(const std::vector<Vertex>& vertices_in, std::vector<Vertex_Out>& vertices_out) const; //W2 Version
+		void VertexTransformationFunction(Mesh& mesh) const; //W2 Version
 
 		// Textures
 		Texture* m_pTexture;
@@ -65,6 +69,16 @@ namespace dae
 		void W2_TriangleList();
 		void W2_TriangleStrip();
 		void W2_Textures();
-		void W2_DepthFix();
+
+		// Final Render loop
+		void RenderMeshes();
+
+		float Remap(float value, float min, float max);
+		RenderMode m_RenderMode{ RenderMode::normal };
+
+		// Tuktuk
+		Mesh* m_pTuktukMesh = nullptr;
+		float m_Angle{ 0.0f };
+		float m_RotateSpeed{ PI_DIV_4 };
 	};
 }

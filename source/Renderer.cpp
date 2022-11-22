@@ -25,10 +25,15 @@ Renderer::Renderer(SDL_Window* pWindow) :
 	m_pDepthBufferPixels = new float[m_Width * m_Height];
 
 	//Initialize Camera
-	m_Camera.Initialize(60.f, { .0f,.0f,-10.f });
+	m_Camera.Initialize(60.f, { .0f,5.0f,-30.f }, float(m_Width)/ m_Height);
+
+	// Load tuktuk mesh
+	m_pTuktukMesh = new Mesh();
+	Utils::ParseOBJ("Resources/tuktuk.obj", m_pTuktukMesh->vertices, m_pTuktukMesh->indices);
+	m_pTuktukMesh->primitiveTopology = PrimitiveTopology::TriangleList;
 
 	// Initialize Textures
-	m_pTexture = Texture::LoadFromFile("Resources/uv_grid_2.png");
+	m_pTexture = Texture::LoadFromFile("Resources/tuktuk.png");
 }
 
 Renderer::~Renderer()
@@ -36,11 +41,18 @@ Renderer::~Renderer()
 	delete[] m_pDepthBufferPixels;
 
 	delete m_pTexture;
+	delete m_pTuktukMesh;
 }
 
 void Renderer::Update(Timer* pTimer)
 {
 	m_Camera.Update(pTimer);
+
+	m_Angle += m_RotateSpeed* pTimer->GetElapsed();
+	if (m_Angle > PI_2) {
+		m_Angle -= PI_2;
+	}
+	m_pTuktukMesh->worldMatrix = Matrix::CreateRotationY(m_Angle);
 }
 
 void Renderer::Render()
@@ -63,7 +75,8 @@ void Renderer::Render()
 	//W2_TriangleList();
 	//W2_TriangleStrip();
 	//W2_Textures();
-	W2_DepthFix();
+
+	RenderMeshes();
 
 	//@END
 	//Update SDL Surface
@@ -98,35 +111,38 @@ void Renderer::VertexTransformationFunction(const std::vector<Vertex>& vertices_
 	}
 }
 
-void Renderer::VertexTransformationFunction(const std::vector<Vertex>& vertices_in, std::vector<Vertex_Out>& vertices_out) const
+void Renderer::VertexTransformationFunction(Mesh& mesh) const
 {
-	vertices_out.reserve(vertices_in.size());
+	mesh.vertices_out.reserve(mesh.vertices.size());
 
-	for (Vertex vertex : vertices_in) {
+	Matrix WVPMatrix{ mesh.worldMatrix * m_Camera.viewMatrix * m_Camera.projectionMatrix };
 
-		// World to view space
-		vertex.position = m_Camera.viewMatrix.TransformPoint(vertex.position);
+	for (const Vertex& vertex : mesh.vertices) {
 
-		// Perspective divide
-		vertex.position.x /= vertex.position.z;
-		vertex.position.y /= vertex.position.z;
-
-		// Camera settings
-		const float aspectRatio = float(m_Width) / m_Height;
-		vertex.position.x /= (aspectRatio * m_Camera.fov);
-		vertex.position.y /= (m_Camera.fov);
-
-		// To Screen Space
-		vertex.position.x = (vertex.position.x + 1) * m_Width / 2;
-		vertex.position.y = (-vertex.position.y + 1) * m_Height / 2;
-
+		// Init out vertex
 		Vertex_Out vertexOut{};
 		vertexOut.position = { vertex.position.x, vertex.position.y, vertex.position.z, 1 };
 		vertexOut.color = vertex.color;
 		vertexOut.uv = vertex.uv;
 
-		vertices_out.emplace_back(vertexOut);
+		// World to NDC space
+		vertexOut.position = WVPMatrix.TransformPoint(vertexOut.position);
+
+		// Perspective divide
+		vertexOut.position.x /= vertexOut.position.w;
+		vertexOut.position.y /= vertexOut.position.w;
+		vertexOut.position.z /= vertexOut.position.w;
+
+		mesh.vertices_out.emplace_back(vertexOut);
 	}
+}
+
+void Renderer::ToggleMode() {
+	m_RenderMode = RenderMode((int(m_RenderMode) + 1) % 3);
+}
+
+float Renderer::Remap(float value, float min, float max) {
+	return (value - min) / (max - min);
 }
 
 bool Renderer::SaveBufferToImage() const
@@ -502,7 +518,7 @@ void Renderer::W2_TriangleList() {
 
 	for (Mesh mesh : meshes_world) {
 
-		VertexTransformationFunction(mesh.vertices, mesh.vertices_out);
+		VertexTransformationFunction(mesh);
 
 		// Loop over triangles
 		for (int triangleIndex{ 0 }; triangleIndex + 2 < mesh.indices.size(); ++triangleIndex) {
@@ -627,7 +643,7 @@ void Renderer::W2_TriangleStrip() {
 
 	for (Mesh mesh : meshes_world) {
 
-		VertexTransformationFunction(mesh.vertices, mesh.vertices_out);
+		VertexTransformationFunction(mesh);
 
 		// Loop over triangles
 		for (int triangleIndex{ 0 }; triangleIndex + 2 < mesh.indices.size(); ++triangleIndex) {
@@ -752,7 +768,7 @@ void Renderer::W2_Textures() {
 
 	for (Mesh mesh : meshes_world) {
 
-		VertexTransformationFunction(mesh.vertices, mesh.vertices_out);
+		VertexTransformationFunction(mesh);
 
 		// Loop over triangles
 		for (int triangleIndex{ 0 }; triangleIndex + 2 < mesh.indices.size(); ++triangleIndex) {
@@ -855,10 +871,10 @@ void Renderer::W2_Textures() {
 	}
 }
 
-void Renderer::W2_DepthFix() {
+void Renderer::RenderMeshes() {
 
 	std::vector<Mesh> meshes_world{
-		Mesh{
+		/*Mesh{
 			{
 				Vertex{{-3,3,-2},{}, {0,0}},
 				Vertex{{0,3,-2},{}, {0.5f,0}},
@@ -876,12 +892,13 @@ void Renderer::W2_DepthFix() {
 				6,3,7,4,8,5
 			},
 			PrimitiveTopology::TriangleStrip
-		}
+		}*/
+		*m_pTuktukMesh,
 	};
 
 	for (Mesh mesh : meshes_world) {
 
-		VertexTransformationFunction(mesh.vertices, mesh.vertices_out);
+		VertexTransformationFunction(mesh);
 
 		// Loop over triangles
 		for (int triangleIndex{ 0 }; triangleIndex + 2 < mesh.indices.size(); ++triangleIndex) {
@@ -918,6 +935,25 @@ void Renderer::W2_DepthFix() {
 			Vertex_Out v1 = mesh.vertices_out[index1];
 			Vertex_Out v2 = mesh.vertices_out[index2];
 
+			// Culling triangles
+			if (abs(v0.position.x) > 1 || abs(v0.position.y) > 1 || v0.position.z < 0 || v0.position.z > 1) {
+				continue;
+			}
+			if (abs(v1.position.x) > 1 || abs(v1.position.y) > 1 || v1.position.z < 0 || v1.position.z > 1) {
+				continue;
+			}
+			if (abs(v2.position.x) > 1 || abs(v2.position.y) > 1 || v2.position.z < 0 || v2.position.z > 1) {
+				continue;
+			}
+
+			// To Screen Space
+			v0.position.x = (v0.position.x + 1) * m_Width / 2;
+			v0.position.y = (-v0.position.y + 1) * m_Height / 2;
+			v1.position.x = (v1.position.x + 1) * m_Width / 2;
+			v1.position.y = (-v1.position.y + 1) * m_Height / 2;
+			v2.position.x = (v2.position.x + 1) * m_Width / 2;
+			v2.position.y = (-v2.position.y + 1) * m_Height / 2;
+
 			// Find bounding box
 			Int2 pMin{}, pMax{};
 			pMin.x = Clamp(int(std::min(v2.position.x, std::min(v0.position.x, v1.position.x))), 0, m_Width);
@@ -946,7 +982,7 @@ void Renderer::W2_DepthFix() {
 					pointToSide = { pixel - v2.position.GetXY() };
 					float w1{ Vector2::Cross(side,pointToSide) };
 
-					if (w0 >= 0 && w1 >= 0 && w2 >= 0) {
+					if ((w0 >= 0 && w1 >= 0 && w2 >= 0) || m_RenderMode == RenderMode::bounding) {
 
 						// Calculate Barycentric weights
 						const float totalArea = w0 + w1 + w2;
@@ -962,14 +998,31 @@ void Renderer::W2_DepthFix() {
 							// Update Depth Buffer
 							m_pDepthBufferPixels[px + (py * m_Width)] = interpolatedDepth;
 
+							// InterpolatedW
+							float interpolatedW{ 1.0f / (w0 * (1 / v0.position.w) + w1 * (1 / v1.position.w) + w2 * (1 / v2.position.w)) };
+							
 							// Interpolated color
-							ColorRGB finalColor{ w0 * (v0.color/v0.position.z) + w1 * (v1.color / v1.position.z) + w2 * (v2.color / v2.position.z) };
-							finalColor *= interpolatedDepth;
+							ColorRGB finalColor{ w0 * (v0.color/v0.position.w) + w1 * (v1.color / v1.position.w) + w2 * (v2.color / v2.position.w) };
+							finalColor *= interpolatedW;
 
 							// Interpolated UV
-							Vector2 interpolatedUV{ w0 * (v0.uv / v0.position.z) + w1 * (v1.uv / v1.position.z) + w2 * (v2.uv / v2.position.z) };
-							interpolatedUV *= interpolatedDepth;
-							finalColor = m_pTexture->Sample(interpolatedUV);
+							Vector2 interpolatedUV{ w0 * (v0.uv / v0.position.w) + w1 * (v1.uv / v1.position.w) + w2 * (v2.uv / v2.position.w) };
+							interpolatedUV *= interpolatedW;
+
+							switch (m_RenderMode) {
+								case RenderMode::normal:
+									finalColor = m_pTexture->Sample(interpolatedUV);
+									break;
+
+								case RenderMode::bounding:
+									finalColor = colors::White;
+									break;
+
+								case RenderMode::depth:
+									float grayScale{ Remap(interpolatedDepth, 0.995f,1.0f) };
+									finalColor = ColorRGB{ grayScale, grayScale, grayScale };
+									break;
+							}
 
 							//Update Color in Buffer
 							finalColor.MaxToOne();
