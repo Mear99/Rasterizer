@@ -17,7 +17,7 @@ namespace dae
 	class Timer;
 	class Scene;
 
-	enum class RenderMode{normal, depth, bounding};
+	enum class RenderMode{observerdArea, diffuse, specular, combined};
 
 	class Renderer final
 	{
@@ -35,7 +35,12 @@ namespace dae
 
 		bool SaveBufferToImage() const;
 
+		// Function keys
 		void ToggleMode();
+		void ToggleBoundingBoxes();
+		void ToggleDepthBuffer();
+		void ToggleRotation();
+		void ToggleNormalMap();
 
 	private:
 		SDL_Window* m_pWindow{};
@@ -56,7 +61,10 @@ namespace dae
 		void VertexTransformationFunction(Mesh& mesh) const; //W2 Version
 
 		// Textures
-		Texture* m_pTexture;
+		Texture* m_pDiffuseColor;
+		Texture* m_pNormalMap;
+		Texture* m_pSpecularMap;
+		Texture* m_pGlossyMap;
 
 		// W1 Render stages
 		void W1_Rasterization();
@@ -72,13 +80,19 @@ namespace dae
 
 		// Final Render loop
 		void RenderMeshes();
+		ColorRGB PixelShading(const Vertex_Out& v);
 
+		// Render modes
 		float Remap(float value, float min, float max);
-		RenderMode m_RenderMode{ RenderMode::normal };
+		RenderMode m_RenderMode{ RenderMode::combined };
+		bool m_VisualizeBoundingBoxes{ false };
+		bool m_VisualizeDepthBuffer{ false };
+		bool m_DoRotation{ true };
+		bool m_UseNormalMap{ true };
 
 		// Tuktuk
-		Mesh* m_pTuktukMesh = nullptr;
+		Mesh* m_pObjectMesh = nullptr;
 		float m_Angle{ 0.0f };
-		float m_RotateSpeed{ PI_DIV_4 };
+		float m_RotateSpeed{ 1 };
 	};
 }

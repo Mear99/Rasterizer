@@ -25,34 +25,43 @@ Renderer::Renderer(SDL_Window* pWindow) :
 	m_pDepthBufferPixels = new float[m_Width * m_Height];
 
 	//Initialize Camera
-	m_Camera.Initialize(60.f, { .0f,5.0f,-30.f }, float(m_Width)/ m_Height);
+	m_Camera.Initialize(45.f, { 0.0f,0.0f,0.0f }, float(m_Width)/ m_Height);
 
 	// Load tuktuk mesh
-	m_pTuktukMesh = new Mesh();
-	Utils::ParseOBJ("Resources/tuktuk.obj", m_pTuktukMesh->vertices, m_pTuktukMesh->indices);
-	m_pTuktukMesh->primitiveTopology = PrimitiveTopology::TriangleList;
+	m_pObjectMesh = new Mesh();
+	Utils::ParseOBJ("Resources/vehicle.obj", m_pObjectMesh->vertices, m_pObjectMesh->indices);
+	m_pObjectMesh->primitiveTopology = PrimitiveTopology::TriangleList;
 
 	// Initialize Textures
-	m_pTexture = Texture::LoadFromFile("Resources/tuktuk.png");
+	m_pDiffuseColor = Texture::LoadFromFile("Resources/vehicle_diffuse.png");
+	m_pNormalMap = Texture::LoadFromFile("Resources/vehicle_normal.png");
+	m_pSpecularMap = Texture::LoadFromFile("Resources/vehicle_specular.png");
+	m_pGlossyMap = Texture::LoadFromFile("Resources/vehicle_gloss.png");
 }
 
 Renderer::~Renderer()
 {
 	delete[] m_pDepthBufferPixels;
 
-	delete m_pTexture;
-	delete m_pTuktukMesh;
+	delete m_pDiffuseColor;
+	delete m_pNormalMap;
+	delete m_pSpecularMap;
+	delete m_pGlossyMap;
+	delete m_pObjectMesh;
 }
 
 void Renderer::Update(Timer* pTimer)
 {
 	m_Camera.Update(pTimer);
 
-	m_Angle += m_RotateSpeed* pTimer->GetElapsed();
-	if (m_Angle > PI_2) {
-		m_Angle -= PI_2;
+	if (m_DoRotation) {
+		m_Angle += m_RotateSpeed * pTimer->GetElapsed();
+		if (m_Angle > PI_2) {
+			m_Angle -= PI_2;
+		}
+
+		m_pObjectMesh->worldMatrix = Matrix::CreateRotationY(m_Angle) * Matrix::CreateTranslation(0, 0, 50);
 	}
-	m_pTuktukMesh->worldMatrix = Matrix::CreateRotationY(m_Angle);
 }
 
 void Renderer::Render()
@@ -62,7 +71,7 @@ void Renderer::Render()
 	SDL_LockSurface(m_pBackBuffer);
 	
 	// Clear buffers
-	SDL_FillRect(m_pBackBuffer, NULL,0);
+	SDL_FillRect(m_pBackBuffer, NULL, SDL_MapRGB(m_pBackBuffer->format, 128, 128, 128));
 	std::fill_n(m_pDepthBufferPixels, m_Width*m_Height, FLT_MAX);
 
 	//RENDER LOGIC
@@ -124,6 +133,8 @@ void Renderer::VertexTransformationFunction(Mesh& mesh) const
 		vertexOut.position = { vertex.position.x, vertex.position.y, vertex.position.z, 1 };
 		vertexOut.color = vertex.color;
 		vertexOut.uv = vertex.uv;
+		vertexOut.normal = vertex.normal;
+		vertexOut.tangent = vertex.tangent;
 
 		// World to NDC space
 		vertexOut.position = WVPMatrix.TransformPoint(vertexOut.position);
@@ -133,12 +144,36 @@ void Renderer::VertexTransformationFunction(Mesh& mesh) const
 		vertexOut.position.y /= vertexOut.position.w;
 		vertexOut.position.z /= vertexOut.position.w;
 
+		// Transform normal and tangent To World space
+		vertexOut.normal = mesh.worldMatrix.TransformVector(vertexOut.normal);
+		vertexOut.tangent = mesh.worldMatrix.TransformVector(vertexOut.tangent);
+
+		// Calculate viewDirection
+		vertexOut.viewDirection = mesh.worldMatrix.TransformPoint(vertex.position) - m_Camera.origin;
+		vertexOut.viewDirection.Normalize();
+
 		mesh.vertices_out.emplace_back(vertexOut);
 	}
 }
 
 void Renderer::ToggleMode() {
-	m_RenderMode = RenderMode((int(m_RenderMode) + 1) % 3);
+	m_RenderMode = RenderMode((int(m_RenderMode) + 1) % 4);
+}
+
+void Renderer::ToggleBoundingBoxes() {
+	m_VisualizeBoundingBoxes = !m_VisualizeBoundingBoxes;
+}
+
+void Renderer::ToggleDepthBuffer() {
+	m_VisualizeDepthBuffer = !m_VisualizeDepthBuffer;
+}
+
+void Renderer::ToggleRotation() {
+	m_DoRotation = !m_DoRotation;
+}
+
+void Renderer::ToggleNormalMap() {
+	m_UseNormalMap = !m_UseNormalMap;
 }
 
 float Renderer::Remap(float value, float min, float max) {
@@ -854,7 +889,7 @@ void Renderer::W2_Textures() {
 
 							// Interpolated UV
 							Vector2 interpolatedUV{ w0 * v0.uv + w1 * v1.uv + w2 * v2.uv };
-							finalColor = m_pTexture->Sample(interpolatedUV);
+							finalColor = m_pDiffuseColor->Sample(interpolatedUV);
 
 							//Update Color in Buffer
 							finalColor.MaxToOne();
@@ -893,7 +928,7 @@ void Renderer::RenderMeshes() {
 			},
 			PrimitiveTopology::TriangleStrip
 		}*/
-		*m_pTuktukMesh,
+		* m_pObjectMesh,
 	};
 
 	for (Mesh mesh : meshes_world) {
@@ -965,6 +1000,15 @@ void Renderer::RenderMeshes() {
 			for (int px{ pMin.x }; px <= pMax.x; ++px) {
 				for (int py{ pMin.y }; py <= pMax.y; ++py) {
 
+					// Visualize the bouding boxes
+					if (m_VisualizeBoundingBoxes) {
+						m_pBackBufferPixels[px + (py * m_Width)] = SDL_MapRGB(m_pBackBuffer->format,
+							static_cast<uint8_t>(255),
+							static_cast<uint8_t>(255),
+							static_cast<uint8_t>(255));
+						continue;
+					}
+
 					Vector2 pixel{ float(px),float(py) };
 
 					//Side A
@@ -982,7 +1026,7 @@ void Renderer::RenderMeshes() {
 					pointToSide = { pixel - v2.position.GetXY() };
 					float w1{ Vector2::Cross(side,pointToSide) };
 
-					if ((w0 >= 0 && w1 >= 0 && w2 >= 0) || m_RenderMode == RenderMode::bounding) {
+					if (w0 >= 0 && w1 >= 0 && w2 >= 0) {
 
 						// Calculate Barycentric weights
 						const float totalArea = w0 + w1 + w2;
@@ -998,31 +1042,47 @@ void Renderer::RenderMeshes() {
 							// Update Depth Buffer
 							m_pDepthBufferPixels[px + (py * m_Width)] = interpolatedDepth;
 
+							// Visualize the depth buffer
+							if (m_VisualizeDepthBuffer) {
+
+								float depthColor{ Remap(interpolatedDepth, 0.997f, 1.0f) };
+
+								m_pBackBufferPixels[px + (py * m_Width)] = SDL_MapRGB(m_pBackBuffer->format,
+									static_cast<uint8_t>(depthColor * 255),
+									static_cast<uint8_t>(depthColor * 255),
+									static_cast<uint8_t>(depthColor * 255));
+								continue;
+							}
+
+
+
 							// InterpolatedW
 							float interpolatedW{ 1.0f / (w0 * (1 / v0.position.w) + w1 * (1 / v1.position.w) + w2 * (1 / v2.position.w)) };
-							
-							// Interpolated color
-							ColorRGB finalColor{ w0 * (v0.color/v0.position.w) + w1 * (v1.color / v1.position.w) + w2 * (v2.color / v2.position.w) };
-							finalColor *= interpolatedW;
 
 							// Interpolated UV
 							Vector2 interpolatedUV{ w0 * (v0.uv / v0.position.w) + w1 * (v1.uv / v1.position.w) + w2 * (v2.uv / v2.position.w) };
 							interpolatedUV *= interpolatedW;
 
-							switch (m_RenderMode) {
-								case RenderMode::normal:
-									finalColor = m_pTexture->Sample(interpolatedUV);
-									break;
+							// Interpolated Normal
+							Vector3 InterpolatedNormal{ w0 * (v0.normal / v0.position.w) + w1 * (v1.normal / v1.position.w) + w2 * (v2.normal / v2.position.w) };
+							InterpolatedNormal *= interpolatedW;
 
-								case RenderMode::bounding:
-									finalColor = colors::White;
-									break;
+							// Interpolated Tangent
+							Vector3 InterpolatedTangent{ w0 * (v0.tangent / v0.position.w) + w1 * (v1.tangent / v1.position.w) + w2 * (v2.tangent / v2.position.w) };
+							InterpolatedTangent *= interpolatedW;
 
-								case RenderMode::depth:
-									float grayScale{ Remap(interpolatedDepth, 0.995f,1.0f) };
-									finalColor = ColorRGB{ grayScale, grayScale, grayScale };
-									break;
-							}
+							// Interpolated view direction
+							Vector3 InterpolatedViewDirection{ w0 * (v0.viewDirection / v0.position.w) + w1 * (v1.viewDirection / v1.position.w) + w2 * (v2.viewDirection / v2.position.w) };
+							InterpolatedViewDirection *= interpolatedW;
+
+							Vertex_Out pixelVertex{};
+							pixelVertex.position = { pixel.x, pixel.y, interpolatedDepth, interpolatedW };
+							pixelVertex.uv = interpolatedUV;
+							pixelVertex.normal = InterpolatedNormal.Normalized();
+							pixelVertex.tangent = InterpolatedTangent.Normalized();
+							pixelVertex.viewDirection = InterpolatedViewDirection.Normalized();
+
+							ColorRGB finalColor{ PixelShading(pixelVertex) };
 
 							//Update Color in Buffer
 							finalColor.MaxToOne();
@@ -1037,4 +1097,66 @@ void Renderer::RenderMeshes() {
 			}
 		}
 	}
+}
+
+ColorRGB Renderer::PixelShading(const Vertex_Out& v) {
+	
+	const Vector3 lightDirection{ 0.577f, -0.577f, 0.577f };
+	const float lightIntensity{ 7.0f };
+	const float shininess{ 25.0f };
+	ColorRGB finalColor{ 0,0,0 };
+	ColorRGB ambientColor{ 0.025f, 0.025f, 0.025f };
+
+	Vector3 sampledNomal{ v.normal };
+
+	// Normal map calculations
+	if (m_UseNormalMap) {
+		Vector3 binormal{ Vector3::Cross(v.normal, v.tangent) };
+		Matrix tangentSpaceAxis{ Matrix{v.tangent, binormal, v.normal, Vector3::Zero} };
+
+		ColorRGB normalColor{ m_pNormalMap->Sample(v.uv) };
+		sampledNomal = {normalColor.r, normalColor.g, normalColor.b };
+		sampledNomal = (2.0f * sampledNomal) - Vector3{ 1.0f, 1.0f, 1.0f };
+		sampledNomal = tangentSpaceAxis.TransformVector(sampledNomal);
+	}
+
+	// Cosine law
+	float observedArea{Vector3::Dot(sampledNomal, -lightDirection)};
+
+	if (observedArea > 0) {
+
+		// Diffuse lambert color
+		ColorRGB diffuseColor = lightIntensity * m_pDiffuseColor->Sample(v.uv) / PI;
+
+		// Specular Color
+		const ColorRGB ks{ m_pSpecularMap->Sample(v.uv) };
+		const float exp{ m_pGlossyMap->Sample(v.uv).r * shininess };
+
+		float dotproduct{ std::max(Vector3::Dot(sampledNomal,-lightDirection),0.0f) };
+		Vector3 r{ (- lightDirection) - 2 * (dotproduct * sampledNomal)};
+		float cosine{ std::max(Vector3::Dot(r,v.viewDirection),0.0f) };
+		ColorRGB specularPhong{ ks * powf(cosine,exp) };
+
+		// Final color
+		switch (m_RenderMode) {
+			case RenderMode::observerdArea:
+				finalColor = ColorRGB{ observedArea, observedArea,observedArea };
+				break;
+
+			case RenderMode::diffuse:
+				finalColor = diffuseColor * observedArea;
+				break;
+
+			case RenderMode::specular:
+				finalColor = specularPhong * observedArea;
+				break;
+
+			case RenderMode::combined:
+				finalColor = (diffuseColor + specularPhong + ambientColor) * observedArea;
+					break;
+		}
+	}
+	
+	return finalColor;
+
 }
